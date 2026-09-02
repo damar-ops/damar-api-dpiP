@@ -10,7 +10,7 @@ global.AIRich = AIRich;
 
 global.pairingNumber = 212709473869;
 global.owner = [
-  ['212633226499', 'DAMAR-MD', true],
+  ['212717268388', 'DAMAR-MD', true],
   ['', 'Owner 2', true],
 ];
 
