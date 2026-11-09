@@ -13,6 +13,7 @@ import {
 } from 'baileys'
 
 import { makeWASocket } from '../lib/simple.js'
+
 import {
     handler as mainHandler,
     participantsUpdate,
@@ -24,7 +25,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const MAX_SERBOTS = 10
-
 const BASE_DIR = path.join(process.cwd(), 'serbot')
 
 const PIC = 'https://cdn.zass.in/9gr2ADAc8B.jpeg'
@@ -34,8 +34,9 @@ const FACEBOOK =
 
 const logger = pino({ level: 'silent' })
 
-if (!globalThis.__serbots)
+if (!globalThis.__serbots) {
     globalThis.__serbots = new Map()
+}
 
 const registry = globalThis.__serbots
 
@@ -96,18 +97,18 @@ function getMessageText(msg) {
 }
 
 function isProtectedCommand(text) {
-    const match = String(text || '').trim().match(
-        /^[.!#/،]([^\s]+)/
-    )
+    const match = String(text || '')
+        .trim()
+        .match(/^[.!#/،]([^\s]+)/)
 
     if (!match) return false
 
     const command = match[1].toLowerCase()
 
-    if (OWNER_ONLY_COMMANDS.includes(command))
+    if (OWNER_ONLY_COMMANDS.includes(command)) {
         return true
+    }
 
-    // فحص الأوامر المسجلة كأوامر مالك
     for (const plugin of Object.values(global.plugins || {})) {
         if (!plugin) continue
 
@@ -118,7 +119,9 @@ function isProtectedCommand(text) {
                 : []
 
         const aliases = helps.map(x =>
-            String(x).replace(/^[.!#/،]/, '').toLowerCase()
+            String(x)
+                .replace(/^[.!#/،]/, '')
+                .toLowerCase()
         )
 
         if (
@@ -148,8 +151,7 @@ function blockedGroups() {
         const saved =
             globalThis.db?.data?.settings?.serbotBlocked
 
-        if (Array.isArray(saved))
-            return saved
+        if (Array.isArray(saved)) return saved
     } catch {}
 
     return DEFAULT_BLOCKED_GROUPS
@@ -178,17 +180,19 @@ function senderPhone(m, text) {
         String(text || '').trim().split(/\s+/)[0]
     )
 
-    if (fromText.length >= 9 && fromText.length <= 15)
+    if (fromText.length >= 9 && fromText.length <= 15) {
         return fromText
+    }
 
-    if (m?.sender?.endsWith('@s.whatsapp.net'))
+    if (m?.sender?.endsWith('@s.whatsapp.net')) {
         return digits(m.sender)
+    }
 
     return ''
 }
 
 // ======================================================
-// 📩 إرسال رسالة
+// 📩 إرسال رسالة للخاص عند الحاجة
 // ======================================================
 
 async function notify(mainConn, phone, text) {
@@ -197,7 +201,36 @@ async function notify(mainConn, phone, text) {
             userJid(phone),
             { text }
         )
-    } catch {}
+
+        return true
+    } catch (e) {
+        console.error('[JADIBOT PRIVATE NOTIFY]', e)
+        return false
+    }
+}
+
+// ======================================================
+// 📢 إرسال إشعار داخل مجموعة التنصيب
+// ======================================================
+
+async function notifyInstallGroup(conn, entry, message) {
+    try {
+        const chat = entry.installChat
+
+        if (!chat || !chat.endsWith('@g.us')) {
+            console.error('[JADIBOT] Install group not found')
+            return false
+        }
+
+        await conn.sendMessage(chat, {
+            text: message
+        })
+
+        return true
+    } catch (e) {
+        console.error('[JADIBOT GROUP NOTIFY]', e)
+        return false
+    }
 }
 
 // ======================================================
@@ -221,7 +254,7 @@ ${code}
 3️⃣ اختر الأجهزة المرتبطة.
 4️⃣ اضغط على ربط جهاز.
 5️⃣ اختر الربط برقم الهاتف.
-6️⃣ اضغط على نسخ الكود أسفله أو انسخه يدوياً.
+6️⃣ انسخ الكود أعلاه.
 7️⃣ أدخل الكود في واتساب.
 
 ⏳ الكود صالح لمدة قصيرة.
@@ -253,7 +286,6 @@ ${code}
         }
     ]
 
-    // استعمال نظام الأزرار الموجود في مشروعك
     if (typeof conn.sendButton === 'function') {
         try {
             return await conn.sendButton(
@@ -271,7 +303,6 @@ ${code}
         }
     }
 
-    // طريقة احتياطية
     try {
         await conn.sendMessage(
             m.chat,
@@ -300,7 +331,9 @@ async function connectSocket(entry, mainConn) {
 
     try {
         version = (await fetchLatestWaWebVersion()).version
-    } catch {}
+    } catch (e) {
+        console.error('[JADIBOT VERSION]', e?.message)
+    }
 
     const sock = makeWASocket({
         ...(version ? { version } : {}),
@@ -338,8 +371,9 @@ async function connectSocket(entry, mainConn) {
         ).filter(msg => {
             const jid = msg?.key?.remoteJid || ''
 
-            if (blockedGroups().includes(jid))
+            if (blockedGroups().includes(jid)) {
                 return false
+            }
 
             return true
         })
@@ -384,8 +418,9 @@ async function connectSocket(entry, mainConn) {
     sock.ev.on('messages.upsert', sock.handler)
 
     sock.ev.on('group-participants.update', upd => {
-        if (blockedGroups().includes(upd?.id || ''))
+        if (blockedGroups().includes(upd?.id || '')) {
             return
+        }
 
         return participantsUpdate.call(sock, upd)
     })
@@ -417,13 +452,17 @@ async function connectSocket(entry, mainConn) {
                 if (!entry.openNotified) {
                     entry.openNotified = true
 
-                    await notify(
+                    // الإشعار يمشي لمجموعة التنصيب فقط
+                    await notifyInstallGroup(
                         mainConn,
-                        entry.phone,
-                        '✅ البوت الفرعي ديالك ولى خدام!\n\n' +
-                        '🤖 مرحبا بك في DAMAR-MD.\n' +
+                        entry,
+                        '╭━━━⪩ 𝐃𝐀𝐌𝐀𝐑-𝐌𝐃 ⪨━━━⬣\n\n' +
+                        '✅ تم ربط البوت الفرعي بنجاح!\n\n' +
+                        '🤖 البوت دابا خدام.\n' +
+                        '📱 رقم البوت: +' + entry.phone + '\n\n' +
                         '⏸️ للإيقاف: .stopserbot\n' +
-                        '🗑️ للحذف: .delserbot'
+                        '🗑️ للحذف: .delserbot\n\n' +
+                        '╰━━━━━━━━━━━━━━━━⬣'
                     )
                 }
 
@@ -444,10 +483,14 @@ async function connectSocket(entry, mainConn) {
             ) {
                 registry.delete(entry.phone)
 
-                fs.rmSync(
-                    entry.dir,
-                    { recursive: true, force: true }
-                )
+                try {
+                    fs.rmSync(
+                        entry.dir,
+                        { recursive: true, force: true }
+                    )
+                } catch (e) {
+                    console.error('[JADIBOT REMOVE]', e)
+                }
 
                 await notify(
                     mainConn,
@@ -556,14 +599,23 @@ async function connectSocket(entry, mainConn) {
 // 🚀 بدء البوت الفرعي
 // ======================================================
 
-async function startSerbot(phone, mainConn) {
+async function startSerbot(phone, mainConn, installChat) {
     const existing = registry.get(phone)
 
-    if (existing)
+    if (existing) {
         return { status: 'already' }
+    }
 
-    if (registry.size >= MAX_SERBOTS)
+    if (registry.size >= MAX_SERBOTS) {
         return { status: 'full' }
+    }
+
+    if (
+        !installChat ||
+        !installChat.endsWith('@g.us')
+    ) {
+        return { status: 'invalid_group' }
+    }
 
     const dir = path.join(BASE_DIR, phone)
 
@@ -573,6 +625,7 @@ async function startSerbot(phone, mainConn) {
         sock: null,
         phone,
         dir,
+        installChat,
         startedAt: Date.now(),
         wasOpen: false,
         stopping: false,
@@ -590,11 +643,12 @@ async function startSerbot(phone, mainConn) {
             mainConn
         )
 
-        if (res?.code)
+        if (res?.code) {
             return {
                 status: 'code',
                 code: res.code
             }
+        }
 
         return { status: 'reconnecting' }
 
@@ -620,18 +674,21 @@ async function stopSerbot(phone, options = {}) {
 
     const dir = path.join(BASE_DIR, phone)
 
-    if (!entry && !fs.existsSync(dir))
+    if (!entry && !fs.existsSync(dir)) {
         return false
+    }
 
     if (entry) {
         entry.stopping = true
 
-        if (entry.timer)
+        if (entry.timer) {
             clearTimeout(entry.timer)
+        }
 
         try {
-            if (logout)
+            if (logout) {
                 await entry.sock?.logout()
+            }
         } catch {}
 
         try {
@@ -679,11 +736,13 @@ const handler = async (
     // ==================================================
 
     if (command === 'listbots') {
-        if (!isOwner)
+        if (!isOwner) {
             return m.reply('⛔ هذا الأمر خاص بالمالك.')
+        }
 
-        if (!registry.size)
+        if (!registry.size) {
             return m.reply('📭 لا توجد بوتات فرعية متصلة.')
+        }
 
         const list = [...registry.values()]
             .map((e, i) =>
@@ -704,8 +763,9 @@ const handler = async (
         command === 'blockserbot' ||
         command === 'unblockserbot'
     ) {
-        if (!isOwner)
+        if (!isOwner) {
             return m.reply('⛔ الأمر خاص بالمالك.')
+        }
 
         const arg = (text || '').trim()
 
@@ -715,28 +775,37 @@ const handler = async (
                 ? m.chat
                 : ''
 
-        if (!target)
-            return m.reply('⚠️ استعمل الأمر داخل المجموعة أو أرسل JID.')
+        if (!target) {
+            return m.reply(
+                '⚠️ استعمل الأمر داخل المجموعة أو أرسل JID.'
+            )
+        }
 
         const list = blockedGroups()
 
         if (command === 'blockserbot') {
-            if (list.includes(target))
+            if (list.includes(target)) {
                 return m.reply('ℹ️ المجموعة محظورة مسبقاً.')
+            }
 
-            if (!saveBlockedGroups([...list, target]))
+            if (!saveBlockedGroups([...list, target])) {
                 return m.reply('❌ تعذر حفظ الإعدادات.')
+            }
 
-            return m.reply('✅ تم حظر المجموعة من البوتات الفرعية.')
+            return m.reply(
+                '✅ تم حظر المجموعة من البوتات الفرعية.'
+            )
         }
 
-        if (!list.includes(target))
+        if (!list.includes(target)) {
             return m.reply('ℹ️ المجموعة غير محظورة.')
+        }
 
         if (!saveBlockedGroups(
             list.filter(g => g !== target)
-        ))
+        )) {
             return m.reply('❌ تعذر حفظ الإعدادات.')
+        }
 
         return m.reply('✅ تم إلغاء حظر المجموعة.')
     }
@@ -751,18 +820,20 @@ const handler = async (
     ) {
         const phone = senderPhone(m, text)
 
-        if (!phone)
+        if (!phone) {
             return m.reply(
                 `⚠️ استعمل:\n${usedPrefix + command} 212XXXXXXXXX`
             )
+        }
 
         const done = await stopSerbot(
             phone,
             { logout: command === 'delserbot' }
         )
 
-        if (!done)
+        if (!done) {
             return m.reply('📭 لا يوجد بوت فرعي بهذا الرقم.')
+        }
 
         return m.reply(
             command === 'delserbot'
@@ -774,6 +845,17 @@ const handler = async (
     // ==================================================
     // 📱 أوامر التنصيب
     // ==================================================
+
+    // التنصيب خاصو يكون داخل مجموعة
+    if (
+        !m.chat ||
+        !m.chat.endsWith('@g.us')
+    ) {
+        return m.reply(
+            '⚠️ خاصك تستعمل أمر التنصيب داخل المجموعة.\n\n' +
+            '📢 رسالة نجاح الربط غادي تتصيفط لنفس المجموعة.'
+        )
+    }
 
     const phone = senderPhone(m, text)
 
@@ -794,9 +876,11 @@ const handler = async (
     await m.react?.('⏳').catch(() => {})
 
     try {
+        // تمرير المجموعة مباشرة إلى نظام التنصيب
         const res = await startSerbot(
             phone,
-            conn
+            conn,
+            m.chat
         )
 
         if (res.status === 'already') {
@@ -808,6 +892,12 @@ const handler = async (
         if (res.status === 'full') {
             return m.reply(
                 `⚠️ وصلنا للحد الأقصى (${MAX_SERBOTS}) من البوتات الفرعية.`
+            )
+        }
+
+        if (res.status === 'invalid_group') {
+            return m.reply(
+                '❌ تعذر تحديد مجموعة التنصيب.'
             )
         }
 
